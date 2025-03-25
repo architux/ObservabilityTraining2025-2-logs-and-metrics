@@ -1,0 +1,54 @@
+services:
+  flask_app:
+    container_name: flask_app
+    image: flask_crud_api:2.0.0
+    environment:
+      - APP_HOST=${APP_HOST}
+      - APP_PORT=${APP_PORT}
+      - DB_URL=${DB_URL}
+    restart: always
+    build: .
+    ports:
+      - "${APP_PORT}:${APP_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl", "-f", "http://${APP_HOST}:${APP_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      flask_db:
+        condition: service_healthy
+        restart: true
+  flask_db:
+    container_name: flask_db
+    image: postgres:15
+    environment:
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    restart: always
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  flask_prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}
