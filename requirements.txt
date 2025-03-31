@@ -1,0 +1,8 @@
+flask
+Flask-SQLAlchemy
+loguru
+loki-logger-handler
+prometheus-flask-exporter
+psycopg2-binary
+python-dotenv
+request-id-flask

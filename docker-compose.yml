@@ -1,0 +1,164 @@
+services:
+  flask_app:
+    image: flask_crud_api:2.0.0
+    container_name: flask_app
+    restart: always
+    environment:
+      - APP_VERSION=${APP_VERSION}
+      - APP_HOST=${APP_HOST}
+      - APP_PORT=${APP_PORT}
+      - DEBUG=${DEBUG}
+    build:
+      context: .
+      args:
+        - APP_HOST=${APP_HOST}
+        - APP_PORT=${APP_PORT}
+    ports:
+      - "${APP_PORT}:${APP_PORT}"
+    healthcheck:
+      test: "wget -q -t=1 -O- http://${APP_HOST}:${APP_PORT}/health || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      flask_db:
+        condition: service_healthy
+        restart: true
+      flask_loki:
+        condition: service_started
+    volumes:
+      - flask_app_logs:/var/log
+    networks:
+      - monitoring
+
+  flask_db:
+    image: postgres:15
+    container_name: flask_db
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    healthcheck:
+      test: "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - monitoring
+
+  flask_db_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: flask_db_exporter
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_EXPORTER_HOST=${POSTGRES_EXPORTER_HOST}
+      - POSTGRES_EXPORTER_PORT=${POSTGRES_EXPORTER_PORT}
+      - DATA_SOURCE_NAME=${POSTGRES_DB_URI}
+    ports:
+      - "${POSTGRES_EXPORTER_PORT}:${POSTGRES_EXPORTER_PORT}"
+    healthcheck:
+      test: "wget -q -t=1 -O- http://${POSTGRES_EXPORTER_HOST}:${POSTGRES_EXPORTER_PORT}/metrics || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command:
+      - "--config.file=/etc/postgres_exporter.yml"
+    volumes:
+      - ./postgres_exporter.yml:/etc/postgres_exporter.yml
+    depends_on:
+      flask_prometheus:
+        condition: service_started
+      flask_db:
+        condition: service_healthy
+    networks:
+      - monitoring
+
+  flask_prometheus:
+    image: prom/prometheus:latest
+    container_name: flask_prometheus
+    restart: unless-stopped
+    environment:
+      - PROMETHEUS_HOST=${PROMETHEUS_HOST}
+      - PROMETHEUS_PORT=${PROMETHEUS_PORT}
+    ports:
+      - "${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
+    healthcheck:
+      test: "wget -q -t=1 -O- http://${PROMETHEUS_HOST}:${PROMETHEUS_PORT} || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - monitoring
+
+  flask_loki:
+    image: grafana/loki:latest
+    container_name: flask_loki
+    environment:
+      - LOKI_HOST=${LOKI_HOST}
+      - LOKI_PORT=${LOKI_PORT}
+    ports:
+      - "${LOKI_PORT}:${LOKI_PORT}"
+    healthcheck:
+      test: "wget -q -t=1 -O- http://${LOKI_HOST}:${LOKI_PORT}/ready | grep -q -w ready || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+    networks:
+      - monitoring
+
+  flask_grafana:
+    image: grafana/grafana-enterprise:11.6.0
+    container_name: flask_grafana
+    restart: unless-stopped
+    environment:
+      - GRAFANA_HOST=${GRAFANA_HOST}
+      - GRAFANA_PORT=${GRAFANA_PORT}
+      - GF_SERVER_ROOT_URL=http://localhost:${GRAFANA_PORT}/
+    ports:
+      - "${GRAFANA_PORT}:${GRAFANA_PORT}"
+    healthcheck:
+      test: "curl -f http://${GRAFANA_HOST}:${GRAFANA_PORT}/api/health || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - ./grafana.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - grafana-storage:/var/lib/grafana
+    depends_on:
+      flask_prometheus:
+        condition: service_started
+    networks:
+      - monitoring
+
+volumes:
+  flask_app_logs:
+  pgdata:
+  grafana-storage:
+
+networks:
+  monitoring:
+    driver: bridge

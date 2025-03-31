@@ -1,0 +1,8 @@
+auth_modules:
+  flask_db_exporter:
+    type: userpass
+    userpass:
+      username: postgres_user
+      password: postgres_pass
+    options:
+      sslmode: disable
